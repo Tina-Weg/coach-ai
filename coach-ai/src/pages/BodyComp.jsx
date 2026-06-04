@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Area } from 'recharts'
 import { useUser } from '../context/UserContext.jsx'
 import { saveRecord, getAllRecords } from '../db/index.js'
+import { geminiImage, geminiText, parseJSON } from '../utils/gemini.js'
 
 const FIELDS = [
   { key: 'weight', label: '體重', unit: 'kg' },
@@ -50,7 +51,8 @@ export default function BodyComp() {
 
   async function analyzePhoto(e) {
     const file = e.target.files[0]
-    if (!file || !currentUser?.apiKey) { alert('請先設定 API Key'); return }
+    if (!file) return
+    if (!currentUser?.apiKey) { alert('請先設定 Google AI API Key'); return }
     setAnalyzing(true)
     try {
       const base64 = await new Promise((res, rej) => {
@@ -59,22 +61,20 @@ export default function BodyComp() {
         r.onerror = rej
         r.readAsDataURL(file)
       })
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': currentUser.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6', max_tokens: 400,
-          system: '你是體組成分析師，只輸出純JSON',
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: file.type, data: base64 } },
-            { type: 'text', text: '讀取體脂計數據，輸出JSON：{"weight":數字,"fat":數字,"muscle":數字,"visceral":數字,"bmi":數字,"skeletal":數字,"bmr":數字}' }
-          ]}],
-        }),
-      })
-      const json = await resp.json()
-      const text = json.content?.[0]?.text || '{}'
-      const parsed = JSON.parse(text.match(/\{.*\}/s)?.[0] || '{}')
-      setForm(f => ({ ...f, ...Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v)])) }))
+      const text = await geminiImage(
+        currentUser.apiKey, base64, file.type,
+        '這是一張體脂計APP的截圖，請讀取所有數值，只輸出純JSON格式：{"weight":體重數字,"fat":體脂率數字,"muscle":肌肉量數字,"visceral":內臟脂肪數字,"bmi":BMI數字,"skeletal":骨骼肌率數字,"bmr":基礎代謝率數字}，如果找不到某個數值就填null'
+      )
+      const parsed = parseJSON(text)
+      if (!parsed) { alert('無法辨識截圖，請確認是體脂計數據截圖'); setAnalyzing(false); return }
+      setForm(f => ({
+        ...f,
+        ...Object.fromEntries(
+          Object.entries(parsed)
+            .filter(([, v]) => v !== null && v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+        )
+      }))
       setShowAdd(true)
     } catch (err) { alert('辨識失敗：' + err.message) }
     setAnalyzing(false)
@@ -84,16 +84,13 @@ export default function BodyComp() {
     if (!currentUser?.apiKey || records.length < 2) { setAiAnalysis('需要至少2筆數據才能分析趨勢'); return }
     const latest = records[records.length - 1]
     const first = records[0]
-    const prompt = `體組成變化：體重${first.weight}→${latest.weight}kg，體脂${first.fat}→${latest.fat}%，肌肉${first.muscle}→${latest.muscle}kg。目標：${currentUser.goal}。請給100字分析建議。`
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': currentUser.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 200, messages: [{ role: 'user', content: prompt }] }),
-      })
-      const j = await res.json()
-      setAiAnalysis(j.content?.[0]?.text || '')
-    } catch { setAiAnalysis('分析失敗') }
+      const text = await geminiText(
+        currentUser.apiKey,
+        `我的體組成變化：體重${first.weight}→${latest.weight}kg，體脂${first.fat}→${latest.fat}%，肌肉${first.muscle}→${latest.muscle}kg。健身目標：${currentUser.goal}。請給100字的分析建議。`
+      )
+      setAiAnalysis(text)
+    } catch { setAiAnalysis('分析失敗，請檢查 API Key') }
   }
 
   const filtered = getFilteredData()
@@ -107,7 +104,7 @@ export default function BodyComp() {
         <div className="flex gap-2">
           <button onClick={() => fileRef.current?.click()} disabled={analyzing}
             className="text-xs bg-purple/20 text-purple border border-purple/30 rounded-lg px-3 py-1.5 hover:bg-purple/30 transition-colors disabled:opacity-50">
-            {analyzing ? '辨識中...' : '📷 掃描'}
+            {analyzing ? '⏳ 辨識中...' : '📷 掃描截圖'}
           </button>
           <button onClick={() => setShowAdd(true)} className="text-xs bg-accent text-bg rounded-lg px-3 py-1.5 font-bold">+ 輸入</button>
         </div>
@@ -149,7 +146,7 @@ export default function BodyComp() {
         <div className="card mb-4">
           <div className="text-sm font-bold mb-3">體重趨勢</div>
           <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={filtered.map(r => ({ date: r.date.slice(5), weight: r.weight, fat: r.fat }))}>
+            <LineChart data={filtered.map(r => ({ date: r.date.slice(5), weight: r.weight }))}>
               <XAxis dataKey="date" tick={{ fill: '#ffffff60', fontSize: 10 }} />
               <YAxis tick={{ fill: '#ffffff60', fontSize: 10 }} />
               <Tooltip contentStyle={{ background: '#161616', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
@@ -193,13 +190,14 @@ export default function BodyComp() {
             </div>
           </div>
         ))}
-        {!records.length && <div className="text-center text-white/30 text-sm py-4">尚無記錄</div>}
+        {!records.length && <div className="text-center text-white/30 text-sm py-4">點「📷 掃描截圖」上傳體脂計截圖</div>}
       </div>
 
       {showAdd && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
           <div className="bg-card rounded-t-3xl p-6 w-full max-w-[480px] max-h-[80vh] overflow-y-auto fade-in">
-            <div className="text-lg font-bold mb-4">輸入體組成數據</div>
+            <div className="text-lg font-bold mb-1">體組成數據</div>
+            {Object.values(form).some(v => v && v !== '') && <div className="text-xs text-success mb-3">✓ AI 已讀取數值，請確認後儲存</div>}
             <div className="grid grid-cols-2 gap-2 mb-3">
               {FIELDS.map(f => (
                 <div key={f.key}>
