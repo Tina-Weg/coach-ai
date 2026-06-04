@@ -39,7 +39,6 @@ export default function Nutrition() {
     })
     const dates = Object.keys(byDate).sort().slice(-7)
     setWeekData(dates.map(d => ({ date: d.slice(5), kcal: byDate[d].kcal, target: currentUser.kcalTarget })))
-
     const byMonth = {}
     Object.keys(byDate).forEach(d => {
       const m = d.slice(0, 7)
@@ -65,26 +64,43 @@ export default function Nutrition() {
 
   async function analyzePhoto(e) {
     const file = e.target.files[0]
-    if (!file || !currentUser?.apiKey) { alert('請先設定 API Key'); return }
+    if (!file) return
+    if (!currentUser?.apiKey) { alert('請先在設定頁面輸入 Anthropic API Key'); return }
     setAnalyzing(true)
     try {
       const base64 = await toBase64(file)
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': currentUser.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': currentUser.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6', max_tokens: 300,
-          system: '你是運動營養師，只輸出純JSON，不要有任何其他文字',
+          model: 'claude-sonnet-4-6',
+          max_tokens: 400,
+          system: '你是專業營養師。用戶上傳食物照片，你必須估算營養成分。只輸出純JSON，不要任何說明文字。',
           messages: [{ role: 'user', content: [
             { type: 'image', source: { type: 'base64', media_type: file.type, data: base64 } },
-            { type: 'text', text: '辨識這個食物，輸出JSON格式：{"name":"食物名稱","kcal":數字,"protein":數字,"carb":數字,"fat":數字}' }
+            { type: 'text', text: '請辨識這張圖片中的食物，估算一份的營養成分，用JSON格式回覆：{"name":"食物名稱(中文)","kcal":熱量數字,"protein":蛋白質克數,"carb":碳水化合物克數,"fat":脂肪克數}' }
           ]}],
         }),
       })
       const json = await res.json()
-      const text = json.content?.[0]?.text || '{}'
-      const parsed = JSON.parse(text.match(/\{.*\}/s)?.[0] || '{}')
-      setForm(f => ({ ...f, ...parsed }))
+      if (json.error) { alert('API 錯誤：' + json.error.message); setAnalyzing(false); return }
+      const text = json.content?.[0]?.text || ''
+      const match = text.match(/\{[\s\S]*\}/)
+      if (!match) { alert('AI 無法辨識此圖片，請重試'); setAnalyzing(false); return }
+      const parsed = JSON.parse(match[0])
+      setForm(f => ({
+        ...f,
+        name: parsed.name || f.name,
+        kcal: parsed.kcal ? String(Math.round(parsed.kcal)) : f.kcal,
+        protein: parsed.protein ? String(Math.round(parsed.protein)) : f.protein,
+        carb: parsed.carb ? String(Math.round(parsed.carb)) : f.carb,
+        fat: parsed.fat ? String(Math.round(parsed.fat)) : f.fat,
+      }))
       setShowAdd(true)
     } catch (err) { alert('辨識失敗：' + err.message) }
     setAnalyzing(false)
@@ -117,14 +133,13 @@ export default function Nutrition() {
         <div className="flex gap-2">
           <button onClick={() => fileRef.current?.click()} disabled={analyzing}
             className="text-xs bg-purple/20 text-purple border border-purple/30 rounded-lg px-3 py-1.5 hover:bg-purple/30 transition-colors disabled:opacity-50">
-            {analyzing ? '辨識中...' : '📷 拍照'}
+            {analyzing ? '⏳ 辨識中...' : '📷 拍照'}
           </button>
           <button onClick={() => setShowAdd(true)} className="text-xs bg-accent text-bg rounded-lg px-3 py-1.5 font-bold">+ 新增</button>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={analyzePhoto} />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={analyzePhoto} />
       </div>
 
-      {/* Tab */}
       <div className="flex bg-card rounded-xl p-1 mb-4">
         {['today', 'week', 'month'].map(t => (
           <button key={t} onClick={() => setTab(t)}
@@ -136,7 +151,6 @@ export default function Nutrition() {
 
       {tab === 'today' && (
         <>
-          {/* Macros */}
           <div className="card mb-4">
             <div className="flex items-center gap-4">
               <div style={{ width: 80, height: 80 }}>
@@ -158,7 +172,6 @@ export default function Nutrition() {
                 </div>
               </div>
             </div>
-            {/* Progress bars */}
             {[
               { label: '熱量', val: totals.kcal, max: currentUser?.kcalTarget || 2000, color: '#e8f74a' },
               { label: '蛋白質', val: totals.protein, max: currentUser?.proteinTarget || 150, color: '#4ade80' },
@@ -172,7 +185,6 @@ export default function Nutrition() {
             ))}
           </div>
 
-          {/* Meal list by type */}
           {MEAL_TYPES.map(type => {
             const typeMeals = meals.filter(m => m.type === type)
             if (!typeMeals.length) return null
@@ -193,7 +205,7 @@ export default function Nutrition() {
               </div>
             )
           })}
-          {!meals.length && <div className="text-center text-white/30 text-sm py-8">還沒有記錄，點擊「新增」或「拍照」來記錄今天的飲食</div>}
+          {!meals.length && <div className="text-center text-white/30 text-sm py-8">還沒有記錄，點擊「拍照」讓 AI 辨識食物，或點「新增」手動輸入</div>}
         </>
       )}
 
@@ -227,11 +239,11 @@ export default function Nutrition() {
         </div>
       )}
 
-      {/* Add Modal */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
           <div className="bg-card rounded-t-3xl p-6 w-full max-w-[480px] fade-in">
-            <div className="text-lg font-bold mb-4">新增飲食記錄</div>
+            <div className="text-lg font-bold mb-1">新增飲食記錄</div>
+            {form.name ? <div className="text-xs text-success mb-3">✓ AI 已辨識：{form.name}，請確認數值後按新增</div> : <div className="text-xs text-white/40 mb-3">請填寫食物資訊</div>}
             <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
               {MEAL_TYPES.map(t => (
                 <button key={t} onClick={() => setForm(f => ({ ...f, type: t }))}
@@ -242,10 +254,10 @@ export default function Nutrition() {
             </div>
             <input className="mb-2" placeholder="食物名稱" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             <div className="grid grid-cols-2 gap-2 mb-3">
-              <input type="number" placeholder="熱量 (kcal)" value={form.kcal} onChange={e => setForm(f => ({ ...f, kcal: +e.target.value }))} />
-              <input type="number" placeholder="蛋白質 (g)" value={form.protein} onChange={e => setForm(f => ({ ...f, protein: +e.target.value }))} />
-              <input type="number" placeholder="碳水 (g)" value={form.carb} onChange={e => setForm(f => ({ ...f, carb: +e.target.value }))} />
-              <input type="number" placeholder="脂肪 (g)" value={form.fat} onChange={e => setForm(f => ({ ...f, fat: +e.target.value }))} />
+              <input type="number" placeholder="熱量 (kcal)" value={form.kcal} onChange={e => setForm(f => ({ ...f, kcal: e.target.value }))} />
+              <input type="number" placeholder="蛋白質 (g)" value={form.protein} onChange={e => setForm(f => ({ ...f, protein: e.target.value }))} />
+              <input type="number" placeholder="碳水 (g)" value={form.carb} onChange={e => setForm(f => ({ ...f, carb: e.target.value }))} />
+              <input type="number" placeholder="脂肪 (g)" value={form.fat} onChange={e => setForm(f => ({ ...f, fat: e.target.value }))} />
             </div>
             <div className="flex gap-2">
               <button className="btn-ghost flex-1" onClick={() => setShowAdd(false)}>取消</button>
