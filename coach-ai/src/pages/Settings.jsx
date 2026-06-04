@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useUser } from '../context/UserContext.jsx'
 import { getAllRecords } from '../db/index.js'
+import { geminiText } from '../utils/gemini.js'
 
 const AVATARS = ['💪', '🏋️', '🧘', '🏃', '⚡', '🔥', '🦁', '🐯', '🚀', '⭐']
 const GOALS = ['增肌', '減脂', '維持體態', '提升體能', '健康生活']
@@ -14,6 +15,7 @@ export default function Settings() {
   const [newUser, setNewUser] = useState({ name: '', avatar: '💪', age: '', height: '', weight: '', goal: '增肌', kcalTarget: 2000, proteinTarget: 150, apiKey: '', coachStyle: '溫和鼓勵' })
   const [showApiKey, setShowApiKey] = useState(false)
   const [exportMsg, setExportMsg] = useState('')
+  const [calculating, setCalculating] = useState(false)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const setN = (k, v) => setNewUser(f => ({ ...f, [k]: v }))
@@ -21,6 +23,25 @@ export default function Settings() {
   async function handleSave() {
     await updateUser(form)
     setEditing(false)
+  }
+
+  async function calcTargets() {
+    if (!form.apiKey) { alert('請先輸入 Google AI API Key'); return }
+    if (!form.age || !form.height || !form.weight) { alert('請先填寫年齡、身高、體重'); return }
+    setCalculating(true)
+    try {
+      const text = await geminiText(
+        form.apiKey,
+        `請根據以下資料計算每日建議熱量和蛋白質攝取量：年齡：${form.age}歲，身高：${form.height}cm，體重：${form.weight}kg，目標：${form.goal}。只輸出純JSON：{"kcal":每日建議熱量數字,"protein":每日建議蛋白質克數,"reason":"30字說明"}`
+      )
+      const match = text.match(/\{[\s\S]*\}/)
+      if (match) {
+        const parsed = JSON.parse(match[0])
+        setForm(f => ({ ...f, kcalTarget: parsed.kcal || f.kcalTarget, proteinTarget: parsed.protein || f.proteinTarget }))
+        if (parsed.reason) alert('✓ ' + parsed.reason)
+      }
+    } catch (err) { alert('計算失敗：' + err.message) }
+    setCalculating(false)
   }
 
   async function handleAddUser() {
@@ -33,9 +54,7 @@ export default function Settings() {
   async function exportData() {
     const stores = ['meals', 'bodyData', 'workoutLogs', 'water', 'sleep']
     const data = { user: currentUser }
-    for (const s of stores) {
-      data[s] = await getAllRecords(s, currentUser.id)
-    }
+    for (const s of stores) data[s] = await getAllRecords(s, currentUser.id)
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -52,7 +71,6 @@ export default function Settings() {
     <div className="pt-4 fade-in">
       <div className="bebas text-3xl text-accent mb-4">個人設定</div>
 
-      {/* Current user */}
       <div className="card mb-4">
         <div className="flex items-center gap-3 mb-3">
           <div className="text-4xl">{currentUser.avatar}</div>
@@ -89,9 +107,18 @@ export default function Settings() {
                 ))}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <div><div className="text-xs text-white/60 mb-1">熱量目標</div><input type="number" value={form.kcalTarget || ''} onChange={e => set('kcalTarget', +e.target.value)} /></div>
-              <div><div className="text-xs text-white/60 mb-1">蛋白質目標</div><input type="number" value={form.proteinTarget || ''} onChange={e => set('proteinTarget', +e.target.value)} /></div>
+            <div className="mb-2">
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-xs text-white/60">每日目標</div>
+                <button onClick={calcTargets} disabled={calculating}
+                  className="text-xs text-accent border border-accent/30 rounded-lg px-2 py-0.5 hover:bg-accent/10 transition-colors disabled:opacity-50">
+                  {calculating ? '⏳ 計算中...' : '⚡ AI 幫我算'}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><div className="text-xs text-white/60 mb-1">熱量目標</div><input type="number" value={form.kcalTarget || ''} onChange={e => set('kcalTarget', +e.target.value)} /></div>
+                <div><div className="text-xs text-white/60 mb-1">蛋白質目標</div><input type="number" value={form.proteinTarget || ''} onChange={e => set('proteinTarget', +e.target.value)} /></div>
+              </div>
             </div>
             <div className="mb-2">
               <div className="text-xs text-white/60 mb-1">教練風格</div>
@@ -104,10 +131,10 @@ export default function Settings() {
             </div>
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1">
-                <div className="text-xs text-white/60">Anthropic API Key</div>
+                <div className="text-xs text-white/60">Google AI API Key</div>
                 <button onClick={() => setShowApiKey(!showApiKey)} className="text-xs text-accent">{showApiKey ? '隱藏' : '顯示'}</button>
               </div>
-              <input type={showApiKey ? 'text' : 'password'} placeholder="sk-ant-..." value={form.apiKey || ''} onChange={e => set('apiKey', e.target.value)} />
+              <input type={showApiKey ? 'text' : 'password'} placeholder="AQ..." value={form.apiKey || ''} onChange={e => set('apiKey', e.target.value)} />
             </div>
             <button onClick={handleSave} className="btn-accent">儲存</button>
           </div>
@@ -122,7 +149,6 @@ export default function Settings() {
         )}
       </div>
 
-      {/* Multi-user */}
       <div className="card mb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm font-bold">帳號管理</div>
@@ -146,14 +172,12 @@ export default function Settings() {
         ))}
       </div>
 
-      {/* Data */}
       <div className="card mb-4">
         <div className="text-sm font-bold mb-3">資料管理</div>
         <button onClick={exportData} className="btn-ghost w-full mb-2 text-sm">📥 匯出資料 (JSON)</button>
         {exportMsg && <div className="text-xs text-success text-center">{exportMsg}</div>}
       </div>
 
-      {/* Add user modal */}
       {showAddUser && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && setShowAddUser(false)}>
           <div className="bg-card rounded-t-3xl p-6 w-full max-w-[480px] fade-in">
@@ -178,7 +202,7 @@ export default function Settings() {
         </div>
       )}
 
-      <div className="text-center text-xs text-white/20 py-4">COACH AI v1.0.0 · Made with ❤️</div>
+      <div className="text-center text-xs text-white/20 py-4">COACH AI v1.0.0 · Powered by Google Gemini</div>
     </div>
   )
 }
