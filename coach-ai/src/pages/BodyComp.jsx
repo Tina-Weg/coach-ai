@@ -44,9 +44,9 @@ export default function BodyComp() {
     const rec = { ...form, id: Date.now().toString(), userId: currentUser.id, date: new Date().toISOString().split('T')[0] }
     Object.keys(rec).forEach(k => { if (rec[k] !== '' && !isNaN(rec[k]) && k !== 'note') rec[k] = +rec[k] })
     await saveRecord('bodyData', rec)
-    loadRecords()
     setShowAdd(false)
     setForm({ weight: '', fat: '', muscle: '', visceral: '', bmi: '', skeletal: '', bmr: '', note: '' })
+    await loadRecords()
   }
 
   async function analyzePhoto(e) {
