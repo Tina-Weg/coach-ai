@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useUser } from '../context/UserContext.jsx'
+import { geminiText } from '../utils/gemini.js'
 
 const AVATARS = ['💪', '🏋️', '🧘', '🏃', '⚡', '🔥', '🦁', '🐯', '🚀', '⭐']
 const GOALS = ['增肌', '減脂', '維持體態', '提升體能', '健康生活']
@@ -8,6 +9,7 @@ const STYLES = ['嚴格教練', '溫和鼓勵', '科學分析', '幽默風趣']
 export default function UserSetup() {
   const { createUser } = useUser()
   const [step, setStep] = useState(1)
+  const [calculating, setCalculating] = useState(false)
   const [form, setForm] = useState({
     name: '', avatar: '💪', age: '', height: '', weight: '',
     goal: '增肌', kcalTarget: 2000, proteinTarget: 150,
@@ -19,6 +21,31 @@ export default function UserSetup() {
   async function handleCreate() {
     if (!form.name.trim()) return
     await createUser(form)
+  }
+
+  async function calcTargets() {
+    if (!form.apiKey) { alert('請先輸入 Google AI API Key 才能自動計算'); return }
+    if (!form.age || !form.height || !form.weight) { alert('請先填寫年齡、身高、體重'); return }
+    setCalculating(true)
+    try {
+      const text = await geminiText(
+        form.apiKey,
+        `請根據以下資料計算每日建議熱量和蛋白質攝取量：
+年齡：${form.age}歲，身高：${form.height}cm，體重：${form.weight}kg，目標：${form.goal}。
+只輸出純JSON：{"kcal":每日建議熱量數字,"protein":每日建議蛋白質克數,"reason":"30字說明"}`
+      )
+      const match = text.match(/\{[\s\S]*\}/)
+      if (match) {
+        const parsed = JSON.parse(match[0])
+        setForm(f => ({
+          ...f,
+          kcalTarget: parsed.kcal || f.kcalTarget,
+          proteinTarget: parsed.protein || f.proteinTarget,
+        }))
+        if (parsed.reason) alert('✓ ' + parsed.reason)
+      }
+    } catch (err) { alert('計算失敗：' + err.message) }
+    setCalculating(false)
   }
 
   return (
@@ -59,6 +86,11 @@ export default function UserSetup() {
                 <input type="number" placeholder="65" value={form.weight} onChange={e => set('weight', e.target.value)} />
               </div>
             </div>
+            <div className="mb-4">
+              <div className="text-sm text-white/60 mb-1">Google AI API Key（選填）</div>
+              <input type="password" placeholder="AQ..." value={form.apiKey} onChange={e => set('apiKey', e.target.value)} />
+              <div className="text-xs text-white/30 mt-1">用於 AI 自動計算目標和所有 AI 功能</div>
+            </div>
             <button className="btn-accent" onClick={() => form.name.trim() && setStep(2)}>下一步</button>
           </div>
         )}
@@ -77,16 +109,28 @@ export default function UserSetup() {
                 ))}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              <div>
-                <div className="text-xs text-white/60 mb-1">每日熱量目標</div>
-                <input type="number" value={form.kcalTarget} onChange={e => set('kcalTarget', +e.target.value)} />
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm text-white/60">每日目標</div>
+                <button onClick={calcTargets} disabled={calculating}
+                  className="text-xs text-accent border border-accent/30 rounded-lg px-3 py-1 hover:bg-accent/10 transition-colors disabled:opacity-50">
+                  {calculating ? '⏳ 計算中...' : '⚡ AI 幫我算'}
+                </button>
               </div>
-              <div>
-                <div className="text-xs text-white/60 mb-1">蛋白質目標(g)</div>
-                <input type="number" value={form.proteinTarget} onChange={e => set('proteinTarget', +e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-xs text-white/60 mb-1">每日熱量 (kcal)</div>
+                  <input type="number" value={form.kcalTarget} onChange={e => set('kcalTarget', +e.target.value)} />
+                </div>
+                <div>
+                  <div className="text-xs text-white/60 mb-1">蛋白質 (g)</div>
+                  <input type="number" value={form.proteinTarget} onChange={e => set('proteinTarget', +e.target.value)} />
+                </div>
               </div>
+              <div className="text-xs text-white/30 mt-1">點「AI 幫我算」根據你的身體數據自動計算</div>
             </div>
+
             <div className="mb-4">
               <div className="text-sm text-white/60 mb-2">教練風格</div>
               <div className="grid grid-cols-2 gap-2">
@@ -97,11 +141,6 @@ export default function UserSetup() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="mb-4">
-              <div className="text-sm text-white/60 mb-1">Anthropic API Key（選填）</div>
-              <input type="password" placeholder="sk-ant-..." value={form.apiKey} onChange={e => set('apiKey', e.target.value)} />
-              <div className="text-xs text-white/30 mt-1">用於 AI 食物辨識和教練建議功能</div>
             </div>
             <div className="flex gap-2">
               <button className="btn-ghost flex-1" onClick={() => setStep(1)}>返回</button>
