@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useUser } from '../context/UserContext.jsx'
 import { getRecordsByDate, saveRecord, getAllRecords } from '../db/index.js'
+import { geminiText } from '../utils/gemini.js'
 
 export default function Sleep() {
   const { currentUser } = useUser()
   const [records, setRecords] = useState([])
   const [weekData, setWeekData] = useState([])
   const [form, setForm] = useState({ bedtime: '23:00', wakeTime: '07:00', quality: 4, note: '' })
-  const [todayRec, setTodayRec] = useState(null)
   const [aiAdvice, setAiAdvice] = useState('')
   const [loadingAI, setLoadingAI] = useState(false)
   const [avgSleep, setAvgSleep] = useState(0)
@@ -17,10 +17,6 @@ export default function Sleep() {
 
   async function loadData() {
     if (!currentUser) return
-    const today = new Date().toISOString().split('T')[0]
-    const todayRecs = await getRecordsByDate('sleep', currentUser.id, today)
-    setTodayRec(todayRecs[0] || null)
-
     const all = await getAllRecords('sleep', currentUser.id)
     const sorted = all.sort((a, b) => a.date.localeCompare(b.date))
     const last7 = sorted.slice(-7)
@@ -50,18 +46,15 @@ export default function Sleep() {
   }
 
   async function getAIAdvice() {
-    if (!currentUser?.apiKey) { setAiAdvice('請先設定 API Key'); return }
+    if (!currentUser?.apiKey) { setAiAdvice('請先設定 Google AI API Key'); return }
     setLoadingAI(true)
     try {
       const avgQ = weekData.length ? (weekData.reduce((s, r) => s + r.quality, 0) / weekData.length).toFixed(1) : form.quality
-      const prompt = `我最近7天平均睡眠${avgSleep}小時，睡眠品質平均${avgQ}/5分。今晚睡眠：${form.bedtime}入睡，${form.wakeTime}起床，品質${form.quality}/5。請給50字恢復建議。`
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': currentUser.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 150, messages: [{ role: 'user', content: prompt }] }),
-      })
-      const j = await res.json()
-      setAiAdvice(j.content?.[0]?.text || '')
+      const text = await geminiText(
+        currentUser.apiKey,
+        `我最近7天平均睡眠${avgSleep}小時，睡眠品質平均${avgQ}/5分。今晚睡眠：${form.bedtime}入睡，${form.wakeTime}起床，品質${form.quality}/5。請給50字恢復建議。`
+      )
+      setAiAdvice(text)
     } catch { setAiAdvice('分析失敗') }
     setLoadingAI(false)
   }
@@ -72,7 +65,6 @@ export default function Sleep() {
     <div className="pt-4 fade-in">
       <div className="bebas text-3xl text-purple mb-4">睡眠記錄</div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="card text-center">
           <div className="text-3xl font-bold text-purple">{avgSleep}</div>
@@ -86,7 +78,6 @@ export default function Sleep() {
         </div>
       </div>
 
-      {/* Input form */}
       <div className="card mb-4">
         <div className="text-sm font-bold mb-3">記錄今日睡眠</div>
         <div className="grid grid-cols-2 gap-3 mb-3">
@@ -122,7 +113,6 @@ export default function Sleep() {
         <button onClick={saveSleep} className="btn-accent">儲存記錄</button>
       </div>
 
-      {/* AI Advice */}
       <div className="card mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-bold text-white/70">🌙 AI 睡眠建議</div>
@@ -134,7 +124,6 @@ export default function Sleep() {
         <p className="text-sm text-white/70">{aiAdvice || '記錄睡眠後點擊獲取 AI 建議'}</p>
       </div>
 
-      {/* Week chart */}
       {weekData.length > 1 && (
         <div className="card mb-4">
           <div className="text-sm font-bold mb-3">近7日睡眠趨勢</div>
@@ -149,7 +138,6 @@ export default function Sleep() {
         </div>
       )}
 
-      {/* History */}
       <div className="card">
         <div className="text-sm font-bold mb-3">歷史記錄</div>
         {records.map(r => (
