@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { RadialBarChart, RadialBar, ResponsiveContainer } from 'recharts'
 import { useUser } from '../context/UserContext.jsx'
 import { getRecordsByDate, getAllRecords } from '../db/index.js'
+import { geminiText } from '../utils/gemini.js'
 
 const today = () => new Date().toISOString().split('T')[0]
 
@@ -31,26 +32,19 @@ export default function Dashboard() {
     const waterTotal = water.reduce((s, w) => s + (w.amount || 0), 0)
     const sleepHours = sleepRec[0]?.duration || 0
     const doneWorkout = workouts.filter(w => w.status === 'done').length
-
     setData({ kcal, water: waterTotal, sleep: sleepHours, workout: doneWorkout })
-
     const sorted = bodyAll.sort((a, b) => b.date.localeCompare(a.date))
     setBodyLatest(sorted[0] || null)
     setBodyPrev(sorted[1] || null)
   }
 
   async function getAIAdvice() {
-    if (!currentUser?.apiKey) { setAiMsg('請先在設定頁輸入 API Key 才能使用 AI 教練功能。'); return }
+    if (!currentUser?.apiKey) { setAiMsg('請先在設定頁輸入 Google AI API Key 才能使用 AI 教練功能。'); return }
     setLoadingAI(true)
     try {
-      const prompt = `我的今日數據：熱量${data.kcal}kcal（目標${currentUser.kcalTarget}）、水分${data.water}ml、睡眠${data.sleep}小時。根據這些數據給我今日50字的健身建議，教練風格：${currentUser.coachStyle}。`
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': currentUser.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 150, messages: [{ role: 'user', content: prompt }] }),
-      })
-      const json = await res.json()
-      setAiMsg(json.content?.[0]?.text || '無法取得建議')
+      const prompt = `我的今日數據：熱量${data.kcal}kcal（目標${currentUser.kcalTarget}）、水分${data.water}ml、睡眠${data.sleep}小時。健身目標：${currentUser.goal}。教練風格：${currentUser.coachStyle}。請給50字的今日建議。`
+      const text = await geminiText(currentUser.apiKey, prompt)
+      setAiMsg(text)
     } catch { setAiMsg('AI 連線失敗，請檢查 API Key') }
     setLoadingAI(false)
   }
@@ -78,7 +72,6 @@ export default function Dashboard() {
       <div className="text-white/40 text-xs mb-1">{new Date().toLocaleDateString('zh-TW', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
       <div className="text-xl font-bold mb-4">早安，{currentUser?.name} {currentUser?.avatar}</div>
 
-      {/* Rings */}
       <div className="card mb-4">
         <div className="text-sm font-bold mb-3 text-white/70">今日完成度</div>
         <div className="flex items-center gap-4">
@@ -110,7 +103,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Body Stats */}
       {bodyLatest && (
         <div className="card mb-4">
           <div className="text-sm font-bold mb-3 text-white/70">最新體組成</div>
@@ -124,9 +116,7 @@ export default function Dashboard() {
                 <div className="text-xl font-bold text-accent">{item.value}</div>
                 <div className="text-xs text-white/40">{item.label} {item.unit}</div>
                 {diff(item.diffKey) && (
-                  <div className={`text-xs mt-1 ${diff(item.diffKey)?.startsWith('↓') && item.label !== '體重' ? 'text-success' : diff(item.diffKey)?.startsWith('↑') && item.label === '體脂率' ? 'text-error' : 'text-white/40'}`}>
-                    {diff(item.diffKey)}
-                  </div>
+                  <div className="text-xs mt-1 text-white/40">{diff(item.diffKey)}</div>
                 )}
               </div>
             ))}
@@ -134,7 +124,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* AI Coach */}
       <div className="card mb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm font-bold text-white/70">⚡ AI 教練建議</div>
@@ -150,7 +139,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Quick Actions */}
       <div className="card">
         <div className="text-sm font-bold mb-3 text-white/70">快速記錄</div>
         <div className="grid grid-cols-3 gap-2">
