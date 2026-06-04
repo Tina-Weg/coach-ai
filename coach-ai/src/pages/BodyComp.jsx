@@ -111,10 +111,9 @@ export default function BodyComp() {
           </button>
           <button onClick={() => setShowAdd(true)} className="text-xs bg-accent text-bg rounded-lg px-3 py-1.5 font-bold">+ 輸入</button>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={analyzePhoto} />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={analyzePhoto} />
       </div>
 
-      {/* Latest stats */}
       {latest && (
         <div className="card mb-4">
           <div className="text-xs text-white/40 mb-3">{latest.date} 最新量測</div>
@@ -137,7 +136,6 @@ export default function BodyComp() {
         </div>
       )}
 
-      {/* Range selector */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
         {RANGES.map(r => (
           <button key={r} onClick={() => setRange(r)}
@@ -147,7 +145,6 @@ export default function BodyComp() {
         ))}
       </div>
 
-      {/* Weight chart */}
       {filtered.length > 1 && (
         <div className="card mb-4">
           <div className="text-sm font-bold mb-3">體重趨勢</div>
@@ -162,7 +159,6 @@ export default function BodyComp() {
         </div>
       )}
 
-      {/* Fat + Muscle chart */}
       {filtered.length > 1 && (
         <div className="card mb-4">
           <div className="text-sm font-bold mb-3">體脂率 & 肌肉量</div>
@@ -178,7 +174,6 @@ export default function BodyComp() {
         </div>
       )}
 
-      {/* AI Analysis */}
       <div className="card mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-bold text-white/70">AI 趨勢分析</div>
@@ -187,7 +182,6 @@ export default function BodyComp() {
         <p className="text-sm text-white/70">{aiAnalysis || '點擊分析按鈕獲取 AI 建議'}</p>
       </div>
 
-      {/* History */}
       <div className="card">
         <div className="text-sm font-bold mb-3">歷史記錄</div>
         {records.slice().reverse().slice(0, 10).map(r => (
@@ -202,7 +196,6 @@ export default function BodyComp() {
         {!records.length && <div className="text-center text-white/30 text-sm py-4">尚無記錄</div>}
       </div>
 
-      {/* Add Modal */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
           <div className="bg-card rounded-t-3xl p-6 w-full max-w-[480px] max-h-[80vh] overflow-y-auto fade-in">
