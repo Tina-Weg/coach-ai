@@ -1,5 +1,5 @@
 const GEMINI_MODEL = 'gemini-1.5-flash'
-const API_BASE = 'https://generativelanguage.googleapis.com/v1/models'
+const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 
 export async function geminiText(apiKey, prompt) {
   const res = await fetch(`${API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
