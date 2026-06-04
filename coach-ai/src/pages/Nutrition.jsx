@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useUser } from '../context/UserContext.jsx'
 import { getRecordsByDate, saveRecord, deleteRecord, getAllRecords } from '../db/index.js'
+import { geminiImage, parseJSON } from '../utils/gemini.js'
 
 const today = () => new Date().toISOString().split('T')[0]
 const MEAL_TYPES = ['早餐', '午餐', '點心', '晚餐', '宵夜']
@@ -65,34 +66,16 @@ export default function Nutrition() {
   async function analyzePhoto(e) {
     const file = e.target.files[0]
     if (!file) return
-    if (!currentUser?.apiKey) { alert('請先在設定頁面輸入 Anthropic API Key'); return }
+    if (!currentUser?.apiKey) { alert('請先在設定頁面輸入 Google AI API Key'); return }
     setAnalyzing(true)
     try {
       const base64 = await toBase64(file)
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': currentUser.apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 400,
-          system: '你是專業營養師。用戶上傳食物照片，你必須估算營養成分。只輸出純JSON，不要任何說明文字。',
-          messages: [{ role: 'user', content: [
-            { type: 'image', source: { type: 'base64', media_type: file.type, data: base64 } },
-            { type: 'text', text: '請辨識這張圖片中的食物，估算一份的營養成分，用JSON格式回覆：{"name":"食物名稱(中文)","kcal":熱量數字,"protein":蛋白質克數,"carb":碳水化合物克數,"fat":脂肪克數}' }
-          ]}],
-        }),
-      })
-      const json = await res.json()
-      if (json.error) { alert('API 錯誤：' + json.error.message); setAnalyzing(false); return }
-      const text = json.content?.[0]?.text || ''
-      const match = text.match(/\{[\s\S]*\}/)
-      if (!match) { alert('AI 無法辨識此圖片，請重試'); setAnalyzing(false); return }
-      const parsed = JSON.parse(match[0])
+      const text = await geminiImage(
+        currentUser.apiKey, base64, file.type,
+        '請辨識這張圖片中的食物，估算一份的營養成分，只輸出純JSON格式，不要任何說明：{"name":"食物名稱(中文)","kcal":熱量數字,"protein":蛋白質克數,"carb":碳水化合物克數,"fat":脂肪克數}'
+      )
+      const parsed = parseJSON(text)
+      if (!parsed) { alert('AI 無法辨識此圖片，請重試'); setAnalyzing(false); return }
       setForm(f => ({
         ...f,
         name: parsed.name || f.name,
@@ -205,7 +188,7 @@ export default function Nutrition() {
               </div>
             )
           })}
-          {!meals.length && <div className="text-center text-white/30 text-sm py-8">還沒有記錄，點擊「拍照」讓 AI 辨識食物，或點「新增」手動輸入</div>}
+          {!meals.length && <div className="text-center text-white/30 text-sm py-8">點「📷 拍照」讓 AI 辨識食物，或點「+ 新增」手動輸入</div>}
         </>
       )}
 
